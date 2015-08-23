@@ -1,0 +1,338 @@
+#!/usr/bin/env python
+
+from datetime import datetime
+import time
+import argparse
+import sys
+import openpyxl
+from openpyxl.styles import Color, PatternFill, Style
+from pprint import pprint
+from copy import copy
+
+from itertools import izip, izip_longest
+
+import dateutil
+import dateutil.parser
+import datetime
+import calendar
+
+STYLE_GENERATED = Style(fill=PatternFill(patternType='solid', fgColor=Color('44FF0000')))
+
+MONDAY = datetime.datetime(year=1970, month=1, day=5)
+DT     = datetime.timedelta(days=1)
+DAYS   = [MONDAY + DT*i for i in range(7)]
+
+DAYSs = [
+            'MON',
+            'TUES',
+            'WED',
+            'THURS',
+            'FRI',
+            'SAT',
+            'SUN',
+        ]
+
+NOSCHEDULE = '-schedule is not posted or not applicable-'.upper()
+
+def coursebook_schedule_to_epoch_schedule(x):
+    """
+    Explanation.
+
+    1970-01-05 is the first Monday after the beginning
+    of the UNIX epoch (1970-01-01, a Thursday). The schedule 
+    computed here uses the convenient fiction that the week we are 
+    referring to is this first full week of the UNIX epoch, with 
+    time recorded in seconds. The purpose of this fiction is
+    that we are going to perform a constraint satisfaction
+    and optimization problem. We are using seconds since the 
+    UNIX epoch as the time unit.
+    """
+
+    x = x.strip().upper()
+
+    if not x or x == NOSCHEDULE:
+        return {'human': None, 'epoch': None}
+
+    x = x.split(';')
+    x = x[0]
+
+    """
+    Examples.
+
+    Mon, Wed & Fri : 10:00am-10:50am : CB3_1.312
+    Tues & Thurs : 5:30pm-6:45pm : FO_2.208
+    Wed : 1:00pm-2:50pm : CB3_1.310
+    """
+    
+    x = [y.strip() for y in x.split(' : ')]
+
+    days, time, _ = x
+
+    time0s, time1s = time.split('-')
+
+    def intervals_g():
+        for i, day in enumerate(DAYSs):
+            if days.find(day) < 0:
+                continue
+
+            try:
+                human = '{day} {time0}-{time1}'.format(day=day, time0=time0s, time1=time1s)
+
+                # Parse time relative to DOW.
+                time0 = dateutil.parser.parse(time0s, default=DAYS[i])
+                time1 = dateutil.parser.parse(time1s, default=DAYS[i])
+
+                # Convert to seconds since UNIX epoch.
+                time0 = calendar.timegm(time0.timetuple())
+                time1 = calendar.timegm(time1.timetuple())
+
+                epoch = '{time0}-{time1}'.format(time0=time0, time1=time1)
+
+                yield {'human': human, 'epoch': epoch}
+            except:
+                #raise Exception("Could nor parse (time0s, time1s): {}".format(str((time0s, time1s))))
+                pass
+
+    intervals = list(intervals_g())
+
+    human = ', '.join(i['human'] for i in intervals)
+    epoch = ', '.join(i['epoch'] for i in intervals)
+
+    return {'human': human, 'epoch': epoch}
+
+
+
+def courses_human_to_canonical_list(x):
+    """
+    Explanation.
+
+    The value in x is a human-edited string which needs
+    to be canonicalized in the following kind of way.
+
+    MATH 1, 2.001, 3      -> MATH 1, MATH 2.001, MATH 3
+    MATH 1, 2, STAT 1 -> MATH 1, MATH 2, STAT 1
+    """
+    # Fix whitespace.
+    human = x.upper().strip().replace('\t', ' ')
+    for i in xrange(5):
+        human = human.replace('  ', ' ')
+    def gen():
+        prefix = None
+        for x in human.split(','):
+            y = x.strip().split(' ')
+            if len(y) == 1:
+                if prefix is None:
+                    raise Exception('Cannot parse 1: {}'.format(row['courses_human']))
+                y = y[0]
+            elif len(y) == 2:
+                prefix, y = y
+            else:
+                raise Exception('Cannot parse 2: {}'.format(row['courses_human']))
+            z = y.split('.')
+            if len(z) == 1:
+                number = z[0]
+                section = None
+            elif len(z) == 2:
+                number, section = z
+            else:
+                raise Exception('Cannot parse 3: {}'.format(row['courses_human']))
+            yield {'prefix': prefix, 'number': number, 'section': section}
+                
+    return list(gen())
+
+
+
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(
+                    description='Schedule XLSX Update',
+                    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                )
+    parser.add_argument(
+            '--dept', 
+            required=False, 
+            default='dept.xlsx',
+            type=str,
+            help='''The dept file. '-' denotes STDIN.'''
+            )
+    parser.add_argument(
+            '--output', 
+            required=False, 
+            default=None,
+            type=str,
+            help='''The output file. '-' denotes STDOUT. Defaults to the value of --dept.'''
+            )
+    parser.add_argument(
+            '--silent', 
+            default=False,
+            action='store_true',
+            help='''Produce no output on STDOUT.
+                    NOTE that --output equal to '-' implies --silent.
+                    '''
+            )
+    args = parser.parse_args()
+    if args.output is None:
+        args.output = args.dept
+    if args.output == '-':
+        args.silent = True
+
+    # ------------------------------------------------------------------------
+    #
+    # Create the courses worksheet.
+    #
+    # ------------------------------------------------------------------------
+
+    wb = openpyxl.load_workbook(args.dept, read_only=False)
+
+    if not 'coursebook' in wb.get_sheet_names():
+        parser.error('Department file does not contain the coursebook worksheet -- you need to splice it in.')
+
+    coursebook_ws = wb['coursebook']
+
+    if 'courses' in wb.get_sheet_names():
+        wb.remove_sheet(wb['courses'])
+
+    courses_ws = wb.create_sheet(title='courses')
+
+    def courses_f():
+
+        TR = {
+                'course prefix' : 'prefix',
+                'course number' : 'number',
+                'section'       : 'section',
+                'term'          : 'term',
+                'call number'   : 'callid',
+                'class title'   : 'title',
+                'class subtitle': 'subtitle',
+                'act'           : 'kind',
+                'dept'          : 'dept',
+                'schedule'      : 'schedule_coursebook'
+                }
+
+        header = [c.value for c in coursebook_ws.rows[2]]
+        header_k_i = {TR[k]: i for i, k in enumerate(header) if TR.has_key(k)}
+
+        def gen():
+            for row in coursebook_ws.rows[3:]:
+                d = {k: row[i].value for k, i in header_k_i.iteritems()}
+                if not d['callid']:
+                    continue
+                s = coursebook_schedule_to_epoch_schedule(d['schedule_coursebook'])
+                d['schedule_human'] = s['human']
+                d['schedule_epoch'] = s['epoch']
+                yield d
+
+        fieldnames = TR.values() + ['schedule_human', 'schedule_epoch']
+
+        return {'fieldnames': fieldnames, 'rows': list(gen())}
+
+    courses_d = courses_f()
+    courses_fieldnames = courses_d['fieldnames']
+    courses_rows = courses_d['rows']
+    
+    courses_ws.append(courses_fieldnames)
+    for row in courses_rows:
+        courses_ws.append(row[fn] for fn in courses_fieldnames)
+
+    for row in courses_ws.rows:
+        for c in row:
+            c.style = STYLE_GENERATED
+
+    # ------------------------------------------------------------------------
+    #
+    # Update the tas worksheet, to calculate their courses and schedule.
+    #
+    # ------------------------------------------------------------------------
+
+    # Iterate over the courses_human column in tas worksheet,
+    # which is edited by a human (duh), canonicalize its value
+    # according to set rules, and determine the course number
+    # and schedule for each TA.
+
+    tas_ws = wb['tas']
+
+    def tas_f():
+        fieldnames = [c.value for c in tas_ws.rows[0] if c.value]
+        cols = ['courses', 'schedule_human', 'schedule_epoch']
+        for fn in cols:
+            if not fn in fieldnames:
+                fieldnames.append(fn)
+        def gen():
+            for row in tas_ws.rows[1:]:
+                row = [c.value for c in row]
+                yield {k: v for k, v in izip_longest(fieldnames, row, fillvalue=None)}
+        return {'fieldnames': fieldnames, 'rows': list(gen())}
+
+    tas_d = tas_f()
+    tas_fieldnames = tas_d['fieldnames']
+
+    def tas_rows_g():
+        tas_rows = tas_d['rows']
+
+        for tas_row in tas_rows:
+            canonical_list = courses_human_to_canonical_list(tas_row['courses_human'])
+
+            def tas_courses_g():
+                def eq(row0, row1):
+                    def eq0(s0, s1):
+                        return s0.strip().upper() == s1.strip().upper()
+                    if row0['section']:
+                        return all(eq0(row0[k], row1[k]) for k in ['section', 'prefix', 'number'])
+                    return all(eq0(row0[k], row1[k]) for k in ['prefix', 'number'])
+                for course in canonical_list:
+                    def matches_g():
+                        for courses_row in courses_rows:
+                            if eq(course, courses_row):
+                                yield courses_row
+                    matches = list(matches_g())
+                    if len(matches) == 0:
+                        raise Exception('Course not found: {}'.format(course))
+                    match = copy(matches[0])
+                    if len(matches) > 1:
+                        # If this is a dissertation or independent 
+                        # study which do not have a schedule then do not fuss
+                        # and redefine the section to None.
+                        if match['kind'].strip().upper() in ['DSR', 'IND']:
+                            match['section'] = None
+                        else:
+                            raise Exception('Course is ambiguous: {}'.format(matches))
+                    yield match
+
+            tas_courses = list(tas_courses_g())
+
+            tas_row['schedule_human'] = ', '.join(c['schedule_human'] for c in tas_courses if c['schedule_human'])
+            tas_row['schedule_epoch'] = ', '.join(c['schedule_epoch'] for c in tas_courses if c['schedule_epoch'])
+
+            def mkname(c):
+                if c['section']:
+                    return '{prefix} {number}.{section}'.format(**c)
+                return '{prefix} {number}'.format(**c)
+
+            tas_row['courses'] = ', '.join(mkname(c) for c in tas_courses)
+
+            yield tas_row
+
+    tas_rows = list(tas_rows_g())
+
+    pprint(tas_rows)
+
+    wb.remove_sheet(tas_ws)
+    tas_ws = wb.create_sheet(title='tas')
+
+    tas_ws.append(tas_fieldnames)
+    for row in tas_rows:
+        tas_ws.append(row[fn] for fn in tas_fieldnames)
+
+    cols = ['courses', 'schedule_human', 'schedule_epoch']
+    idxs = [tas_fieldnames.index(fn) for fn in cols]
+
+    pprint(tas_fieldnames)
+
+    for row in tas_ws.rows:
+        for i in idxs:
+            row[i].style = STYLE_GENERATED
+
+    wb.save(args.output)
+

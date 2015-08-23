@@ -1,0 +1,187 @@
+#!/usr/bin/env python
+
+DEFAULT_PREFIXES = [
+                        'acct',
+                        'acts',
+                        'atec',
+                        'biol',
+                        'ce',
+                        'chem',
+                        'cs',
+                        'econ',
+                        'ecs',
+                        'ecsc',
+                        'ee',
+                        'engr',
+                        'gisc',
+                        'math',
+                        'mis',
+                        'phys',
+                        'stat',
+                    ]
+
+if __name__ == '__main__':
+
+    from selenium import webdriver
+    from datetime import datetime
+    import time
+    import tempfile
+    import shutil
+    import argparse
+    import glob
+    import sys
+    import os
+
+    parser = argparse.ArgumentParser(
+                    description='Schedule CourseBook Fetch',
+                    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                )
+    parser.add_argument(
+            '--term',   
+            required=True, 
+            type=str,
+            help='''The term, 
+                    e.g.,
+                        Spring 2015 is 15s,
+                        Summer 2015 is 15u,
+                        and
+                        Fall 2015 is 15f.
+                    '''
+            )
+    parser.add_argument(
+            '--prefixes', 
+            default=DEFAULT_PREFIXES,
+            nargs='+',
+            type=str,
+            help='''A space-separated list of prefixes to search for, e.g., math stat phys.'''
+            )
+    parser.add_argument(
+            '--output', 
+            required=False, 
+            default=None,
+            type=str,
+            help='''The output name to produce.
+                    If not specified then a file named
+                    {term}.{current-datetime}.xlsx will be
+                    generated in the current directory.
+                    To send output to stdout, use the name '-'.
+                    NOTE that files will be overwritten.
+                    '''
+            )
+    parser.add_argument(
+            '--silent', 
+            default=False,
+            action='store_true',
+            help='''Produce no output on STDOUT.
+                    Note --output '-' implies --silent.
+                    '''
+            )
+
+    args = parser.parse_args()
+    if args.output == '-':
+        args.silent = True
+
+    #
+    # A temporary directory into which an XLSX file will be downloaded.
+    #
+    prefix = os.path.basename(sys.argv[0])
+    destdir = tempfile.mkdtemp(prefix=prefix)
+
+    if args.silent is False: 
+        print "term    : '{}'".format(args.term)
+        print "prefixes: '{}'".format(args.prefixes)
+        print "destdir : '{}'".format(destdir)
+
+    def download():
+        options = webdriver.ChromeOptions()
+        options.add_argument('disable-java')
+        options.add_experimental_option('prefs', {'download.default_directory': destdir}) 
+        driver = webdriver.Chrome(chrome_options=options)
+
+        driver.implicitly_wait(30)
+
+        base_url = "https://coursebook.utdallas.edu"
+
+        #
+        # Open a URL of the following form to generate an HTML report.
+        #
+        #     https://coursebook.utdallas.edu/cp_math/cp_stat/cp_phys/term_15f/includeindstudy_1?
+        #
+        cps = '/'.join('cp_{}'.format(p) for p in args.prefixes) 
+        search_url = "/{cps}/term_{term}/includeindstudy_1?".format(cps=cps, term=args.term)
+
+        url = base_url + search_url
+
+        if args.silent is aolin
+            print 'url:', url
+
+        driver.get(url)
+
+        time.sleep(10)
+
+        #
+        # The previous URL has the option to download the 
+        # report as a spreadsheet at the following URL.
+        #
+        #     https://coursebook.utdallas.edu/reportmonkey/coursebook
+        #
+        search_url = "/reportmonkey/coursebook"
+        url = base_url + search_url
+        driver.get(url)
+
+        #
+        # The previous action downloaded a spreadsheet.
+        # The sleep is to overcome a possible race condition
+        # where the browser may be in the midst of copying the
+        # downloaded spreadsheet over a slow network file system
+        # when the driver attempts to quit.
+        #
+        time.sleep(15)
+        driver.quit()
+
+    def copymove():
+
+        #
+        # Make sure the temporary directoy contains exactly
+        # and only the spreadsheet we expect.
+        #
+        files = glob.glob(destdir + '/*')
+
+        if len(files) != 1:
+            raise Exception('Did not find a single file in the secure temp dir: {}'.format(destdir))
+
+        files = glob.glob(destdir + '/*.xlsx')
+
+        if len(files) != 1:
+            raise Exception('Did not find a single XLSX file in the secure temp dir: {}'.format(destdir))
+
+        #
+        # Copy/move the XLSX to the requested location.
+        #
+        if args.output == '-':
+            with open(files[0], 'r') as file0:
+                shutil.copyfileobj(file0, sys.stdout)
+
+        else:
+            file0 = files[0]
+            file1 = args.output
+
+            if file1 is None:
+                now = datetime.now().isoformat()
+                file1 = '{term}.{now}.xlsx'.format(term=args.term, now=now)
+
+            if args.silent is False:
+                print 'file0:', file0
+                print 'file1:', file1
+
+            shutil.move(file0, file1)
+
+        #
+        # Cleanup.
+        #
+        shutil.rmtree(destdir)
+
+    download()
+    copymove()
+
+# vim:ts=4:sw=4:et

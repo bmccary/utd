@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+
+import argparse
+import copy
+import openpyxl
+from openpyxl.styles import Color, PatternFill, Style
+
+STYLE_GENERATED = Style(fill=PatternFill(patternType='solid', fgColor=Color('44FF0000')))
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(
+                    description='Schedule XLSX Coursebook Splice',
+                    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                )
+    parser.add_argument(
+            '--dept', 
+            required=False, 
+            default='dept.xlsx',
+            type=str,
+            help='''The department file.'''
+            )
+    parser.add_argument(
+            '--coursebook', 
+            required=False, 
+            default='coursebook.xlsx',
+            type=str,
+            help='''The coursebook file.'''
+            )
+    parser.add_argument(
+            '--output', 
+            required=False,
+            default=None,
+            help='''The output file. Default is same as --dept'''
+            )
+    args = parser.parse_args()
+
+    if args.output is None:
+        args.output = args.dept
+
+    dept_wb = openpyxl.load_workbook(args.dept, read_only=False)
+    cb_wb   = openpyxl.load_workbook(args.coursebook, read_only=True)
+
+    if 'coursebook' in dept_wb.get_sheet_names():
+        dept_wb.remove_sheet(dept_wb['coursebook'])
+
+    dept_ws = dept_wb.create_sheet(title='coursebook')
+    cb_ws   = cb_wb.active
+
+    for row in cb_ws.rows:
+        dept_ws.append(c.value for c in row)
+
+    for row in dept_ws.rows:
+        for c in row:
+            c.style = STYLE_GENERATED
+
+    dept_wb.save(args.output)
+
