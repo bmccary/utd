@@ -1,22 +1,7 @@
 
 import os
-
-import apsw
-
-def row_factory(cur, row):
-    return {k[0]: row[i] for i, k in enumerate(cur.getdescription())}
-
-def connection_hook(con):
-    def _print(*args):
-        print(*args)
-    con.createscalarfunction("print", _print)
-    con.setrowtrace(row_factory)
-apsw.connection_hooks.append(connection_hook)
-
 from prettytable import PrettyTable
 from operator import itemgetter
-
-
 import click
 
 from . import config
