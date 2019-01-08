@@ -13,6 +13,10 @@ setup(
         install_requires=[
                 'apsw',
                 'click',
+                'openpyxl',
+                'pytypes',
+                'webdriver_manager',
+                'selenium',
             ],
         include_package_data=True,
         entry_points='''
