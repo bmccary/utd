@@ -1,27 +1,23 @@
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
         name='utd',
-        version='0.1',
-        description='Utilities for the UTD Math Department',
+        version='1.0',
+        description='UTD Tools',
         url='http://github.com/bmccary/utd',
         author='Brady McCary',
         author_email='brady.mccary@gmail.com',
         license='MIT',
-        packages=['utd'],
+        packages=find_packages(),
         install_requires=[
-                'csvu',
-                'selenium',
-                'numberjack',
+                'apsw',
+                'click',
             ],
-        scripts=[
-                    'bin/utd-coursebook-roster-fetch',
-                    'bin/utd-util-dates',
-                    'bin/utd-schedule-coursebook-fetch',
-                    'bin/utd-schedule-xlsx-coursebook-splice',
-                    'bin/utd-schedule-xlsx-update',
-                ],
-        zip_safe=False
+        include_package_data=True,
+        entry_points='''
+            [console_scripts]
+            utd=utd.script:cli
+            ''',
     )
 
