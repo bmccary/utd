@@ -1,9 +1,39 @@
 
-import os
 from prettytable import PrettyTable
-from operator import itemgetter
-import click
+from collections import OrderedDict
 
+def _fieldnames(rows):
+    def g():
+        for row in rows:
+            yield from row
+    d = OrderedDict((k, None) for k in g())
+    return list(d.keys())
+
+def _echo_table(rows):
+    if not rows: return
+    fieldnames = _fieldnames(rows)
+    table = PrettyTable(fieldnames)
+    table.align = 'l'
+    for row in rows:
+        table.add_row([row[k] or '' for k in fieldnames])
+    click.echo(table.get_string())
+
+def _echo_row(row):
+    if not row: return
+    table = PrettyTable(row.keys())
+    table.align = 'l'
+    table.add_row(row.values())
+    click.echo(table.get_string())
+
+def _echo_item(x):
+    if not x: return
+    click.echo(x)
+
+
+
+
+import os
+import click
 from . import config
 
 @click.group()
@@ -12,35 +42,65 @@ def cli():
 
 
 
-from .ldap import search as ldap_search, KEYS as LDAP_KEYS, LDAPReturnCodeException
 
-@cli.command(name='ldap', help='Perform an LDAP search.')
-@click.option('--max', '-m', type=click.IntRange(0, 100), default=0, help='Maximum number of responses (0 means unlimited).')
-@click.option('--timeout', '-t', type=click.IntRange(2, 30), default=5, help='Timeout, in seconds.')
-@click.option('--verbose/--no-verbose', default=False)
+from . import ldap
+
+@cli.group(name='ldap')
+def cli_ldap():
+    pass
+
+@cli_ldap.command(name='filter', help='LDAP search with user-specified filter.')
+@click.argument('filter', type=click.STRING)
+@click.argument('keys', nargs=-1, type=click.STRING)
+def cli_ldap_filter(filter, keys):
+    rows = list(ldap.filter(filter), list(keys))
+    _echo_table(rows)
+
+@cli_ldap.command(name='search', help='Perform an LDAP search with filter: .' + ldap.SEARCH_FILTER)
 @click.argument('term', type=click.STRING)
-def cli_ldap(max, timeout, term, verbose):
-    try:
-        rows = list(ldap_search(term=term, max=max, timeout=timeout, verbose=verbose))
-        if len(rows) > 0:
-            fieldnames = LDAP_KEYS
-            table = PrettyTable(fieldnames)
-            table.align = 'l'
-            for row in rows:
-                table.add_row([row.get(k, '') for k in fieldnames])
-            print(table.get_string())
-    except LDAPReturnCodeException as e:
-        raise click.ClickException('There was an LDAP Exception (code = {}). Try running again with --verbose.'.format(e.code))
+@click.argument('keys', nargs=-1, type=click.STRING)
+def cli_ldap_search(term, keys):
+    rows = list(ldap.search(term, list(keys)))
+    _echo_table(rows)
+
+@cli_ldap.command(name='netid', help='Filter by NetID')
+@click.argument('netid', type=click.STRING)
+@click.argument('keys', nargs=-1, type=click.STRING)
+def cli_ldap_netid(netid, keys):
+    row = ldap.netid(netid, list(keys))
+    _echo_row(row)
+
+@cli_ldap.command(name='alias', help='Filter by alias/PEA')
+@click.argument('alias', type=click.STRING)
+@click.argument('keys', nargs=-1, type=click.STRING)
+def cli_ldap_alias(alias, keys):
+    row = ldap.alias(alias, list(keys))
+    _echo_row(row)
+
+@cli_ldap.command(name='netid-to-alias', help='NetID -> alias/PEA')
+@click.argument('netid', type=click.STRING)
+def cli_ldap_netid_to_alias(netid):
+    x = ldap.netid_to_alias(netid)
+    _echo_item(x)
+
+@cli_ldap.command(name='alias-to-netid', help='alias -> NetID')
+@click.argument('alias', type=click.STRING)
+def cli_ldap_alias_to_netid(alias):
+    x = ldap.alias_to_netid(alias)
+    _echo_item(x)
 
 
 
+
+
+
+import os
+import shutil
+from . import coursebook
 
 @cli.group(name='coursebook')
 def cli_coursebook():
     pass
-
-
-
 
 @cli_coursebook.group(name='db')
 def cli_coursebook_db():
@@ -54,11 +114,7 @@ def cli_coursebook_db_update():
 @click.argument('netid', type=click.STRING)
 def cli_coursebook_db_netid_to_address(netid):
     X = list(coursebook.db_netid_to_address(netid))
-    if X:
-        click.echo(' '.join(X))
-
-
-
+    _echo_item(' '.join(X))
 
 @cli_coursebook.group(name='roster')
 def cli_coursebook_roster():
@@ -77,10 +133,6 @@ def cli_coursebook_xlsx_to_csv(force, source, target):
 def cli_coursebook_roster_download():
     pass
 
-import shutil
-
-from . import coursebook
-
 @cli_coursebook_roster.command(name='download', help='Download a CourseBook roster.')
 @click.option('--force/--no-force', default=False, help="Overwrite existing file.")
 @click.option('--new/--no-new', default=False, help="Get a new file (don't use the cache).")
@@ -89,7 +141,15 @@ from . import coursebook
 @click.argument('address', nargs=-1, type=click.STRING)
 def cli_coursebook_roster_download(netid, get_password, new, force, address):
 
+    def _split(x):
+        y, f = os.path.splitext(x)
+        return y, f[1:]
+
     for x in address:
+        _, f = _split(x)
+        if not (f in coursebook.ROSTER_FORMAT):
+            raise click.ClickException("{x}: I don't know how to download a `{f}`, only: {these}.".format(x=x, f=f, these=' '.join(coursebook.ROSTER_FORMAT)))
+        # FIXME: check for proper address format
         if os.path.exists(x) and not force:
             raise click.ClickException('File exists, maybe use --force?: ' + x)
 
@@ -100,13 +160,8 @@ def cli_coursebook_roster_download(netid, get_password, new, force, address):
         raise click.ClickException('You must either specify a NetID in {config} or with --netid.'.format(config.CONFIG_FILE))
 
     for x in address:
-        y, f = os.path.splitext(x)
-        f = f[1:]
-        if not (f in coursebook.ROSTER_FORMAT):
-            raise click.ClickException("{}: I don't know how to download a {}, only: {}.".format(x, f, str(coursebook.ROSTER_FORMAT)))
+        y, f = _split(x)
         z = coursebook.roster_download(netid=netid, get_password=get_password, address=y, format=f, new=new)
         shutil.copyfile(z, x)
-
-
 
 

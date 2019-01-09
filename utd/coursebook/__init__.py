@@ -20,6 +20,7 @@ DOT_MODULE = os.path.join(config.CONFIG_DIR, MODULE_NAME)
 DOT_MODULE_CACHE = os.path.join(DOT_MODULE, 'cache')
 DOT_MODULE_CACHE_ROSTER = os.path.join(DOT_MODULE_CACHE, 'roster')
 DOT_MODULE_CACHE_SEARCH = os.path.join(DOT_MODULE_CACHE, 'search')
+DOT_MODULE_CACHE_ALIAS = os.path.join(DOT_MODULE_CACHE, 'alias')
 
 URL = 'https://coursebook.utdallas.edu'
 LOGIN_URL = URL + '/login/coursebook'
@@ -248,6 +249,11 @@ def connection_hook(con):
 
 apsw.connection_hooks.append(connection_hook)
 
+
+def db_connect():
+    return apsw.Connection(DB)
+
+
 def yys_to_2yym(x):
     yy = x[:2]
     s = x[2]
@@ -373,10 +379,25 @@ def _db_update_roster(con, cur):
         rows = sorted(g(), key=itemgetter('term', 'netid'))
         cur.executemany(sql, rows)
 
+
+
+def alias():
+
+    con = db_connect()
+    cur = con.cursor()
+
+    _db_update_search(con, cur)
+    _db_update_roster(con, cur)
+
+    con.close()
+
+
+
+
 def db_update():
 
     util.mkdir_p(os.path.dirname(DB))
-    con = apsw.Connection(DB)
+    con = db_connect()
     cur = con.cursor()
 
     _db_update_search(con, cur)
