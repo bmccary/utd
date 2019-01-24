@@ -5,7 +5,6 @@ from collections import OrderedDict
 
 import ldap
 
-
 WORD_RE = re.compile(r'^[-.+A-Za-z0-9]+$')
 
 URI = 'ldaps://nsldap2.utdallas.edu'

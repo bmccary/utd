@@ -33,12 +33,89 @@ def _echo_item(x):
 
 
 import os
+import logging
 import click
+import click_log
 from . import config
+
+_logger = logging.getLogger(__name__)
+click_log.basic_config(_logger)
 
 @click.group()
 def cli():
     pass
+
+
+
+
+from . import blackboard
+
+@cli.group(name='blackboard')
+def cli_blackboard():
+    pass
+
+@cli_blackboard.command(name='download', help='Download')
+@click.option('--get-password', default=None, help='Command to evaluate to get password (default is to ask).')
+@click.option('--netid', default=None, help='Use this NetID.')
+@click.argument('link_text', type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
+def cli_blackboard_download(netid, get_password, link_text):
+    if netid is None: netid = config.NETID
+    if get_password is None: get_password = config.get_password
+
+    x = blackboard.download(netid=netid, get_password=get_password, link_text=link_text)
+    _echo_item(x)
+
+@cli_blackboard.command(name='upload', help='Upload')
+@click.option('--get-password', default=None, help='Command to evaluate to get password (default is to ask).')
+@click.option('--netid', default=None, help='Use this NetID.')
+@click.argument('link_text', type=click.STRING)
+@click.argument('path', type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
+def cli_blackboard_upload(netid, get_password, link_text, path):
+    if netid is None: netid = config.NETID
+    if get_password is None: get_password = config.get_password
+
+    blackboard.upload(netid=netid, get_password=get_password, link_text=link_text, path=path)
+
+@cli_blackboard.command(name='webassign', help='WebAssign')
+@click.option('--get-password', default=None, help='Command to evaluate to get password (default is to ask).')
+@click.option('--netid', default=None, help='Use this NetID.')
+@click.argument('link_text', type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
+def cli_blackboard_webassign(netid, get_password, link_text):
+    if netid is None: netid = config.NETID
+    if get_password is None: get_password = config.get_password
+
+    blackboard.webassign(netid=netid, get_password=get_password, link_text=link_text)
+
+@cli_blackboard.command(name='combo', help='Combine the other commands')
+@click.option('--get-password', default=None, help='Command to evaluate to get password (default is to ask).')
+@click.option('--netid', default=None, help='Use this NetID.')
+@click.option('--upload', type=click.Path(exists=True), default=None, help="CSV to upload.")
+@click.option('--webassign/--no-webassign', default=False, help="Export/import WebAssign.")
+@click.option('--download/--no-download', default=True, help="Download CSV.")
+@click.argument('link_text', type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
+def cli_blackboard_webassign(netid, get_password, link_text, upload, webassign, download):
+    if netid is None: netid = config.NETID
+    if get_password is None: get_password = config.get_password
+
+    if not (upload is None):
+        blackboard.upload(netid=netid, get_password=get_password, link_text=link_text, path=upload)
+
+    if webassign:
+        blackboard.webassign(netid=netid, get_password=get_password, link_text=link_text)
+
+    if download:
+        x = blackboard.download(netid=netid, get_password=get_password, link_text=link_text)
+        _echo_item(x)
+
+
+
+
+
+
 
 
 
@@ -52,6 +129,7 @@ def cli_ldap():
 @cli_ldap.command(name='filter', help='LDAP search with user-specified filter.')
 @click.argument('filter', type=click.STRING)
 @click.argument('keys', nargs=-1, type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
 def cli_ldap_filter(filter, keys):
     rows = list(ldap.filter(filter), list(keys))
     _echo_table(rows)
@@ -59,6 +137,7 @@ def cli_ldap_filter(filter, keys):
 @cli_ldap.command(name='search', help='Perform an LDAP search with filter: .' + ldap.SEARCH_FILTER)
 @click.argument('term', type=click.STRING)
 @click.argument('keys', nargs=-1, type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
 def cli_ldap_search(term, keys):
     rows = list(ldap.search(term, list(keys)))
     _echo_table(rows)
@@ -66,6 +145,7 @@ def cli_ldap_search(term, keys):
 @cli_ldap.command(name='netid', help='Filter by NetID')
 @click.argument('netid', type=click.STRING)
 @click.argument('keys', nargs=-1, type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
 def cli_ldap_netid(netid, keys):
     row = ldap.netid(netid, list(keys))
     _echo_row(row)
@@ -73,18 +153,21 @@ def cli_ldap_netid(netid, keys):
 @cli_ldap.command(name='alias', help='Filter by alias/PEA')
 @click.argument('alias', type=click.STRING)
 @click.argument('keys', nargs=-1, type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
 def cli_ldap_alias(alias, keys):
     row = ldap.alias(alias, list(keys))
     _echo_row(row)
 
 @cli_ldap.command(name='netid-to-alias', help='NetID -> alias/PEA')
 @click.argument('netid', type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
 def cli_ldap_netid_to_alias(netid):
     x = ldap.netid_to_alias(netid)
     _echo_item(x)
 
 @cli_ldap.command(name='alias-to-netid', help='alias -> NetID')
 @click.argument('alias', type=click.STRING)
+@click_log.simple_verbosity_option(_logger)
 def cli_ldap_alias_to_netid(alias):
     x = ldap.alias_to_netid(alias)
     _echo_item(x)
@@ -153,7 +236,7 @@ def cli_coursebook_roster_download(netid, get_password, new, force, address):
         if os.path.exists(x) and not force:
             raise click.ClickException('File exists, maybe use --force?: ' + x)
 
-    if netid is None: netid = config.netid
+    if netid is None: netid = config.NETID
     if get_password is None: get_password = config.get_password
 
     if netid is None:
@@ -163,5 +246,4 @@ def cli_coursebook_roster_download(netid, get_password, new, force, address):
         y, f = _split(x)
         z = coursebook.roster_download(netid=netid, get_password=get_password, address=y, format=f, new=new)
         shutil.copyfile(z, x)
-
 
